@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createAccount, sendVerificationEmail } from "@/lib/firebase/auth";
 import {
   getFacilityBySlug,
   generateReaderId,
   saveReaderProfile,
+  getInvitesByFacility,
+  updateInviteStatus,
 } from "@/lib/firebase/firestore";
 import { verifyPassword } from "@/lib/utils/password";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,9 @@ type Step = "loading" | "not_found" | "password" | "register" | "complete";
 export default function FacilityRegisterPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = params.slug as string;
+  const prefillEmail = searchParams.get("email") ?? "";
 
   const [step, setStep] = useState<Step>("loading");
   const [facility, setFacility] = useState<Facility | null>(null);
@@ -38,7 +42,7 @@ export default function FacilityRegisterPage() {
   const [pwLoading, setPwLoading] = useState(false);
 
   // Step 2: account creation
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(prefillEmail);
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -124,6 +128,22 @@ export default function FacilityRegisterPage() {
         disabled: false,
         created_at: serverTimestamp(),
       });
+
+      // Mark matching invite as registered
+      try {
+        const invites = await getInvitesByFacility(facility!.facility_id);
+        const match = invites.find(
+          (inv) =>
+            inv.status === "pending" &&
+            inv.invitee_email.toLowerCase() === userEmail.toLowerCase()
+        );
+        if (match) {
+          await updateInviteStatus(match.invite_id, "registered");
+        }
+      } catch {
+        // Non-critical: invite status update failure shouldn't block registration
+        console.warn("Failed to update invite status");
+      }
 
       // Send verification email with login URL
       const loginUrl = `${window.location.origin}/login`;
@@ -301,6 +321,8 @@ export default function FacilityRegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="reader@example.com"
                 required
+                readOnly={!!prefillEmail}
+                className={prefillEmail ? "bg-muted" : ""}
               />
             </div>
             <div className="space-y-2">

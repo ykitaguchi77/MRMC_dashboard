@@ -58,6 +58,7 @@ export interface Facility {
   name: string;
   slug: string;
   prefix: string;
+  password: string;
   password_hash: string;
   next_reader_number: number;
   recycled_numbers: number[];
@@ -91,11 +92,13 @@ export interface Case {
 
 export interface Invite {
   invite_id: string;
+  facility_id: string;
+  facility_name: string;
+  invitee_name: string;
+  invitee_email: string;
+  facility_password: string;
   created_by: string;
   created_at: unknown; // serverTimestamp()
-  expires_at: string | null;
-  used: boolean;
-  used_by: string | null;
-  used_at: string | null;
-  label: string;
+  status: "pending" | "registered";
+  registered_at: string | null;
 }

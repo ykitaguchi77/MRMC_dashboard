@@ -24,6 +24,7 @@ import type {
   ReaderProfile,
   TaskType,
   Facility,
+  Invite,
 } from "@/lib/types";
 
 function db() {
@@ -152,7 +153,8 @@ export async function seedCase(caseData: Case): Promise<void> {
 export async function getReaderProfile(
   email: string
 ): Promise<ReaderProfile | null> {
-  const snap = await getDoc(doc(db(), "readers", email));
+  const key = email.toLowerCase();
+  const snap = await getDoc(doc(db(), "readers", key));
   if (!snap.exists()) return null;
   const data = snap.data() as ReaderProfile;
   if (data.disabled) return null;
@@ -162,21 +164,23 @@ export async function getReaderProfile(
 export async function getReaderProfileIncludingDisabled(
   email: string
 ): Promise<ReaderProfile | null> {
-  const snap = await getDoc(doc(db(), "readers", email));
+  const key = email.toLowerCase();
+  const snap = await getDoc(doc(db(), "readers", key));
   return snap.exists() ? (snap.data() as ReaderProfile) : null;
 }
 
 export async function saveReaderProfile(
   profile: ReaderProfile
 ): Promise<void> {
-  await setDoc(doc(db(), "readers", profile.email), profile);
+  const normalized = { ...profile, email: profile.email.toLowerCase() };
+  await setDoc(doc(db(), "readers", normalized.email), normalized);
 }
 
 export async function updateReaderLevel(
   email: string,
   readerLevel: ReaderProfile["reader_level"]
 ): Promise<void> {
-  await updateDoc(doc(db(), "readers", email), {
+  await updateDoc(doc(db(), "readers", email.toLowerCase()), {
     reader_level: readerLevel,
   });
 }
@@ -185,7 +189,7 @@ export async function updateReaderDisplayName(
   email: string,
   displayName: string
 ): Promise<void> {
-  await updateDoc(doc(db(), "readers", email), {
+  await updateDoc(doc(db(), "readers", email.toLowerCase()), {
     display_name: displayName,
   });
 }
@@ -215,12 +219,13 @@ export async function getReadersByFacility(
 // ============================================================
 
 export async function softDeleteReader(email: string): Promise<void> {
-  const readerSnap = await getDoc(doc(db(), "readers", email));
+  const key = email.toLowerCase();
+  const readerSnap = await getDoc(doc(db(), "readers", key));
   if (!readerSnap.exists()) return;
   const reader = readerSnap.data() as ReaderProfile;
 
   // Mark reader as disabled
-  await updateDoc(doc(db(), "readers", email), { disabled: true });
+  await updateDoc(doc(db(), "readers", key), { disabled: true });
 
   // Recycle the reader number
   const facilityRef = doc(db(), "facilities", reader.facility_id);
@@ -342,7 +347,7 @@ export async function getAllFacilities(): Promise<Facility[]> {
 
 export async function updateFacility(
   facilityId: string,
-  data: Partial<Pick<Facility, "name" | "slug" | "prefix" | "password_hash">>
+  data: Partial<Pick<Facility, "name" | "slug" | "prefix" | "password" | "password_hash">>
 ): Promise<void> {
   await updateDoc(doc(db(), "facilities", facilityId), data);
 }
@@ -417,4 +422,51 @@ export async function generateReaderId(
     const readerId = `${facility.prefix}_${String(readerNumber).padStart(3, "0")}`;
     return { readerId, readerNumber };
   });
+}
+
+// ============================================================
+// Invites
+// ============================================================
+
+export async function createInvite(
+  invite: Omit<Invite, "created_at">
+): Promise<void> {
+  await setDoc(doc(db(), "invites", invite.invite_id), {
+    ...invite,
+    created_at: serverTimestamp(),
+  });
+}
+
+export async function getInvitesByFacility(
+  facilityId: string
+): Promise<Invite[]> {
+  const snap = await getDocs(
+    query(
+      collection(db(), "invites"),
+      where("facility_id", "==", facilityId),
+      orderBy("created_at", "desc")
+    )
+  );
+  return snap.docs.map((d) => d.data() as Invite);
+}
+
+export async function getAllInvites(): Promise<Invite[]> {
+  const snap = await getDocs(
+    query(collection(db(), "invites"), orderBy("created_at", "desc"))
+  );
+  return snap.docs.map((d) => d.data() as Invite);
+}
+
+export async function updateInviteStatus(
+  inviteId: string,
+  status: Invite["status"]
+): Promise<void> {
+  await updateDoc(doc(db(), "invites", inviteId), {
+    status,
+    ...(status === "registered" ? { registered_at: new Date().toISOString() } : {}),
+  });
+}
+
+export async function deleteInvite(inviteId: string): Promise<void> {
+  await deleteDoc(doc(db(), "invites", inviteId));
 }

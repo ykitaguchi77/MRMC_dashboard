@@ -194,6 +194,8 @@ export default function AdminPage() {
               facilityIds={
                 role === "super_admin" ? undefined : facilityIds
               }
+              adminEmail={user.email!}
+              adminFacilities={adminFacilities}
             />
           </TabsContent>
 

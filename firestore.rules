@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: authenticated user
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: email matches document key
+    function isOwnerEmail(email) {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == email.lower();
+    }
+
+    // ── Facilities ──
+    // Needed for registration (read), admin management (write)
+    match /facilities/{facilityId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ── Readers ──
+    match /readers/{email} {
+      // Anyone can read (admin needs to list all readers)
+      allow read: if isSignedIn();
+      // Create own profile at registration
+      allow create: if isOwnerEmail(email);
+      // Update own profile or admin update
+      allow update: if isSignedIn();
+      // Soft-delete by admin
+      allow delete: if isSignedIn();
+    }
+
+    // ── Sessions + Results ──
+    match /sessions/{sessionId} {
+      allow read, write: if isSignedIn();
+
+      match /results/{resultId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // ── Cases (read-only for readers, writable for seed script) ──
+    match /cases/{caseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ── Invites ──
+    match /invites/{inviteId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

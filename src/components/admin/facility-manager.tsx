@@ -80,6 +80,7 @@ export function FacilityManager({ adminEmail }: { adminEmail: string }) {
         name,
         slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, ""),
         prefix: prefix.toUpperCase(),
+        password: facilityPw,
         password_hash: passwordHash,
         next_reader_number: 1,
         recycled_numbers: [],
@@ -150,7 +151,7 @@ export function FacilityManager({ adminEmail }: { adminEmail: string }) {
     if (!newPw) return;
     try {
       const hash = await hashPassword(newPw);
-      await updateFacility(facilityId, { password_hash: hash });
+      await updateFacility(facilityId, { password: newPw, password_hash: hash });
       alert("パスワードを変更しました");
     } catch (err) {
       console.error("Failed to change password:", err);

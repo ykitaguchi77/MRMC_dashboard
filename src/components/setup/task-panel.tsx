@@ -166,8 +166,8 @@ export function TaskPanel({ profile, email, onEditProfile }: TaskPanelProps) {
       const session: Session = {
         session_id: uuidv4(),
         reader_id: profile.reader_id,
-        facility: profile.facility,
-        reader_level: profile.reader_level,
+        facility: profile.facility_name,
+        reader_level: profile.reader_level!,
         task_type: row.taskType,
         shuffle_seed: seed,
         case_order: caseOrder,
@@ -204,7 +204,7 @@ export function TaskPanel({ profile, email, onEditProfile }: TaskPanelProps) {
             <Badge variant="outline" className="text-sm px-3 py-1">
               {profile.reader_id}
             </Badge>
-            <span className="text-muted-foreground">{profile.facility}</span>
+            <span className="text-muted-foreground">{profile.facility_name}</span>
             <span className="text-muted-foreground">/</span>
             <span className="text-muted-foreground">{levelLabel}</span>
           </div>

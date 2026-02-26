@@ -18,25 +18,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FACILITIES } from "@/lib/constants/facilities";
 import { EXPERIENCE_LEVELS } from "@/lib/constants/experience-levels";
-import { saveReaderProfile } from "@/lib/firebase/firestore";
+import {
+  updateReaderLevel,
+  updateReaderDisplayName,
+} from "@/lib/firebase/firestore";
 import type { ReaderProfile, ExperienceLevel } from "@/lib/types";
 
 interface ProfileFormProps {
   email: string;
-  initialProfile?: ReaderProfile | null;
+  initialProfile: ReaderProfile;
   onSaved: (profile: ReaderProfile) => void;
 }
 
-export function ProfileForm({ email, initialProfile, onSaved }: ProfileFormProps) {
-  const [facility, setFacility] = useState(initialProfile?.facility ?? "");
-  const [readerId, setReaderId] = useState(initialProfile?.reader_id ?? "");
-  const [level, setLevel] = useState(initialProfile?.reader_level ?? "");
+export function ProfileForm({
+  email,
+  initialProfile,
+  onSaved,
+}: ProfileFormProps) {
+  const [displayName, setDisplayName] = useState(
+    initialProfile.display_name ?? ""
+  );
+  const [level, setLevel] = useState<string>(
+    initialProfile.reader_level ?? ""
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const isValid = facility && readerId.trim() && level;
+  const isValid = level !== "";
 
   async function handleSave() {
     if (!isValid) return;
@@ -44,14 +53,16 @@ export function ProfileForm({ email, initialProfile, onSaved }: ProfileFormProps
     setError("");
 
     try {
-      const profile: ReaderProfile = {
-        email,
-        reader_id: readerId.trim(),
-        facility,
+      if (displayName.trim() !== initialProfile.display_name) {
+        await updateReaderDisplayName(email, displayName.trim());
+      }
+      await updateReaderLevel(email, level as ExperienceLevel);
+
+      onSaved({
+        ...initialProfile,
+        display_name: displayName.trim(),
         reader_level: level as ExperienceLevel,
-      };
-      await saveReaderProfile(profile);
-      onSaved(profile);
+      });
     } catch (err) {
       console.error(err);
       setError("保存に失敗しました。再度お試しください。");
@@ -66,35 +77,35 @@ export function ProfileForm({ email, initialProfile, onSaved }: ProfileFormProps
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">CorneAI Reader Study</CardTitle>
           <CardDescription>
-            {initialProfile ? "プロフィール編集" : "初回設定 — プロフィール登録"}
+            {initialProfile.reader_level
+              ? "プロフィール編集"
+              : "初回設定 — プロフィール登録"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Facility */}
+          {/* Facility (read-only) */}
           <div className="space-y-2">
             <Label>施設名 / Facility</Label>
-            <Select value={facility} onValueChange={setFacility}>
-              <SelectTrigger>
-                <SelectValue placeholder="施設を選択..." />
-              </SelectTrigger>
-              <SelectContent>
-                {FACILITIES.map((f) => (
-                  <SelectItem key={f} value={f}>
-                    {f}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input value={initialProfile.facility_name} disabled />
           </div>
 
-          {/* Reader ID */}
+          {/* Reader ID (read-only) */}
           <div className="space-y-2">
-            <Label htmlFor="reader-id">Reader ID</Label>
+            <Label>Reader ID</Label>
             <Input
-              id="reader-id"
-              placeholder="例: OSK-01"
-              value={readerId}
-              onChange={(e) => setReaderId(e.target.value)}
+              value={initialProfile.reader_id}
+              disabled
+              className="font-mono"
+            />
+          </div>
+
+          {/* Display Name (editable) */}
+          <div className="space-y-2">
+            <Label htmlFor="display-name">表示名 / Display Name</Label>
+            <Input
+              id="display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
             />
           </div>
 
@@ -123,7 +134,11 @@ export function ProfileForm({ email, initialProfile, onSaved }: ProfileFormProps
             disabled={!isValid || saving}
             onClick={handleSave}
           >
-            {saving ? "保存中..." : initialProfile ? "更新 / Update" : "登録して次へ / Save & Continue"}
+            {saving
+              ? "保存中..."
+              : initialProfile.reader_level
+                ? "更新 / Update"
+                : "登録して次へ / Save & Continue"}
           </Button>
         </CardContent>
       </Card>

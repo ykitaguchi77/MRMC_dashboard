@@ -20,9 +20,17 @@ export default function SetupPage() {
     try {
       const existing = await getReaderProfile(user.email);
       if (existing) {
-        setProfile(existing);
-        setPhase("task_panel");
+        // Reader exists — check if initial setup needed (reader_level null)
+        if (!existing.reader_level) {
+          setProfile(existing);
+          setPhase("profile_needed");
+        } else {
+          setProfile(existing);
+          setPhase("task_panel");
+        }
       } else {
+        // No profile — this shouldn't happen with facility-based registration
+        // but handle gracefully
         setPhase("profile_needed");
       }
     } catch (err) {
@@ -35,7 +43,6 @@ export default function SetupPage() {
     loadProfile();
   }, [loadProfile]);
 
-  // Profile saved callback
   function handleProfileSaved(saved: ReaderProfile) {
     setProfile(saved);
     setEditMode(false);
@@ -44,7 +51,6 @@ export default function SetupPage() {
 
   if (!user?.email) return null;
 
-  // Loading
   if (phase === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
@@ -53,8 +59,7 @@ export default function SetupPage() {
     );
   }
 
-  // Profile form (first login or edit mode)
-  if (phase === "profile_needed" || editMode) {
+  if ((phase === "profile_needed" || editMode) && profile) {
     return (
       <ProfileForm
         email={user.email}
@@ -64,7 +69,18 @@ export default function SetupPage() {
     );
   }
 
-  // Task panel
+  // No profile at all (edge case — shouldn't happen with facility registration)
+  if (phase === "profile_needed" && !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        <div className="text-center space-y-2">
+          <p>プロフィールが見つかりません。</p>
+          <p className="text-sm">施設の登録URLからアカウントを作成してください。</p>
+        </div>
+      </div>
+    );
+  }
+
   if (phase === "task_panel" && profile) {
     return (
       <TaskPanel

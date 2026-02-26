@@ -4,26 +4,40 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type TimerColor = "default" | "warning" | "danger";
 
-const LS_KEY = "corneal_timer_start";
+const LS_KEY = "corneal_timer";
 
-function saveStartTime(key: string, timestamp: number) {
+interface PersistedTimer {
+  /** Accumulated elapsed ms from previous browsing sessions */
+  accumulatedMs: number;
+  /** Timestamp when the current browsing session started */
+  resumedAt: number;
+  /** Accumulated pause ms */
+  pausedMs: number;
+  /** Number of pauses */
+  pauseCount: number;
+}
+
+function saveTimerState(key: string, state: PersistedTimer) {
   try {
-    localStorage.setItem(`${LS_KEY}_${key}`, String(timestamp));
+    localStorage.setItem(`${LS_KEY}_${key}`, JSON.stringify(state));
   } catch { /* localStorage unavailable */ }
 }
 
-function loadStartTime(key: string): number | null {
+function loadTimerState(key: string): PersistedTimer | null {
   try {
     const v = localStorage.getItem(`${LS_KEY}_${key}`);
-    return v ? Number(v) : null;
+    if (!v) return null;
+    return JSON.parse(v) as PersistedTimer;
   } catch {
     return null;
   }
 }
 
-function clearStartTime(key: string) {
+function clearTimerState(key: string) {
   try {
     localStorage.removeItem(`${LS_KEY}_${key}`);
+    // Also clean up old format key if present
+    localStorage.removeItem(`corneal_timer_start_${key}`);
   } catch { /* */ }
 }
 
@@ -34,6 +48,9 @@ export function useTimer() {
   const runningRef = useRef(false);
   const persistKeyRef = useRef<string | null>(null);
 
+  // Accumulated time from previous browsing sessions (survives re-login)
+  const accumulatedMsRef = useRef(0);
+
   // Pause tracking
   const [paused, setPaused] = useState(false);
   const pauseStartRef = useRef<number | null>(null);
@@ -42,24 +59,49 @@ export function useTimer() {
 
   const tick = useCallback(() => {
     if (!runningRef.current || startTimeRef.current === null) return;
-    setElapsedMs(Date.now() - startTimeRef.current - totalPausedMsRef.current);
+    const currentSessionMs = Date.now() - startTimeRef.current - totalPausedMsRef.current;
+    setElapsedMs(accumulatedMsRef.current + currentSessionMs);
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  /** Start a new timer. If persistKey is provided, saves start time to localStorage. */
+  /** Persist current state to localStorage */
+  const persistState = useCallback(() => {
+    if (!persistKeyRef.current || startTimeRef.current === null) return;
+    const currentSessionMs = Date.now() - startTimeRef.current - totalPausedMsRef.current;
+    saveTimerState(persistKeyRef.current, {
+      accumulatedMs: accumulatedMsRef.current + currentSessionMs,
+      resumedAt: Date.now(),
+      pausedMs: totalPausedMsRef.current,
+      pauseCount: pauseCountRef.current,
+    });
+  }, []);
+
+  /** Start a new timer. If persistKey is provided, saves/restores state from localStorage. */
   const start = useCallback((persistKey?: string) => {
     if (persistKey) {
       persistKeyRef.current = persistKey;
-      const saved = loadStartTime(persistKey);
+      const saved = loadTimerState(persistKey);
       if (saved) {
-        startTimeRef.current = saved;
-        setElapsedMs(Date.now() - saved - totalPausedMsRef.current);
+        // Restore: carry forward accumulated time, start a fresh counting session
+        accumulatedMsRef.current = saved.accumulatedMs;
+        totalPausedMsRef.current = 0; // pause tracking resets per browsing session
+        pauseCountRef.current = saved.pauseCount;
+        startTimeRef.current = Date.now();
+        setElapsedMs(saved.accumulatedMs);
       } else {
+        accumulatedMsRef.current = 0;
         startTimeRef.current = Date.now();
         setElapsedMs(0);
-        saveStartTime(persistKey, startTimeRef.current);
       }
+      // Save immediately so we capture the new resumedAt
+      saveTimerState(persistKey, {
+        accumulatedMs: accumulatedMsRef.current,
+        resumedAt: Date.now(),
+        pausedMs: 0,
+        pauseCount: pauseCountRef.current,
+      });
     } else {
+      accumulatedMsRef.current = 0;
       startTimeRef.current = Date.now();
       setElapsedMs(0);
     }
@@ -71,27 +113,28 @@ export function useTimer() {
   const stop = useCallback((): number => {
     runningRef.current = false;
     cancelAnimationFrame(rafRef.current);
-    if (startTimeRef.current === null) return 0;
-    // Net reading time = total elapsed - total paused
-    const elapsed = Date.now() - startTimeRef.current - totalPausedMsRef.current;
+    if (startTimeRef.current === null) return accumulatedMsRef.current;
+    const currentSessionMs = Date.now() - startTimeRef.current - totalPausedMsRef.current;
+    const total = accumulatedMsRef.current + currentSessionMs;
     if (persistKeyRef.current) {
-      clearStartTime(persistKeyRef.current);
+      clearTimerState(persistKeyRef.current);
       persistKeyRef.current = null;
     }
-    return elapsed;
+    return total;
   }, []);
 
   const reset = useCallback(() => {
     runningRef.current = false;
     cancelAnimationFrame(rafRef.current);
     startTimeRef.current = null;
+    accumulatedMsRef.current = 0;
     setElapsedMs(0);
     setPaused(false);
     pauseStartRef.current = null;
     totalPausedMsRef.current = 0;
     pauseCountRef.current = 0;
     if (persistKeyRef.current) {
-      clearStartTime(persistKeyRef.current);
+      clearTimerState(persistKeyRef.current);
       persistKeyRef.current = null;
     }
   }, []);
@@ -104,7 +147,8 @@ export function useTimer() {
     pauseStartRef.current = Date.now();
     pauseCountRef.current += 1;
     setPaused(true);
-  }, [paused]);
+    persistState();
+  }, [paused, persistState]);
 
   /** Resume from pause — adds paused duration to offset. */
   const resume = useCallback(() => {
@@ -116,9 +160,19 @@ export function useTimer() {
     rafRef.current = requestAnimationFrame(tick);
   }, [paused, tick]);
 
+  // Persist state before page unload (tab close / navigation)
   useEffect(() => {
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+    const handleBeforeUnload = () => {
+      if (runningRef.current) {
+        persistState();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [persistState]);
 
   const seconds = Math.floor(elapsedMs / 1000);
   const minutes = Math.floor(seconds / 60);

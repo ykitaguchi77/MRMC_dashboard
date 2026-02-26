@@ -51,11 +51,32 @@ export interface ReadingResult {
   timestamp: string;
 }
 
+export type UserRole = "super_admin" | "facility_admin" | "reader";
+
+export interface Facility {
+  facility_id: string;
+  name: string;
+  slug: string;
+  prefix: string;
+  password_hash: string;
+  next_reader_number: number;
+  recycled_numbers: number[];
+  admins: string[];
+  created_by: string;
+  created_at: unknown; // serverTimestamp()
+}
+
 export interface ReaderProfile {
   email: string;
+  uid: string;
   reader_id: string;
-  facility: string;
-  reader_level: ExperienceLevel;
+  reader_number: number;
+  facility_id: string;
+  facility_name: string;
+  display_name: string;
+  reader_level: ExperienceLevel | null;
+  disabled: boolean;
+  created_at: unknown; // serverTimestamp()
 }
 
 export interface Case {
@@ -66,4 +87,15 @@ export interface Case {
   ai_confidence: number;
   ai_correct: boolean;
   has_prediction: boolean;
+}
+
+export interface Invite {
+  invite_id: string;
+  created_by: string;
+  created_at: unknown; // serverTimestamp()
+  expires_at: string | null;
+  used: boolean;
+  used_by: string | null;
+  used_at: string | null;
+  label: string;
 }

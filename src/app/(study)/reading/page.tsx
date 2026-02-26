@@ -237,7 +237,7 @@ export default function ReadingPage() {
 
         {/* Right: Input Panel */}
         <div className="flex w-1/2 flex-col overflow-y-auto p-4">
-          <div className="flex-1 space-y-4">
+          <div className="space-y-4">
             {/* ① Diagnosis */}
             <DiagnosisGrid
               label="① 診断名 / Diagnosis"
@@ -268,10 +268,10 @@ export default function ReadingPage() {
             )}
           </div>
 
-          {/* Next Button — pinned at bottom */}
-          <div className="flex-none pt-3">
+          {/* Next Button */}
+          <div className="pt-14">
             <Button
-              className="w-full"
+              className="w-full h-20 text-lg"
               size="lg"
               disabled={!isFormValid || saving}
               onClick={handleNext}

@@ -1,60 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/hooks/useAuth";
-import { isAdminEmail } from "@/lib/firebase/auth";
+import { useRole } from "@/lib/hooks/useRole";
 import {
   getAllSessions,
   getSessionResults,
   getAllCases,
+  getSessionsByFacility,
 } from "@/lib/firebase/firestore";
 import type { Session, ReadingResult, Case } from "@/lib/types";
+import { FacilityManager } from "@/components/admin/facility-manager";
+import { ReaderManager } from "@/components/admin/reader-manager";
+import { SessionViewer } from "@/components/admin/session-viewer";
 
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
+  const { role, adminFacilities, loading: roleLoading } = useRole();
   const router = useRouter();
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    if (authLoading) return;
-    if (!user || !isAdminEmail(user.email)) {
-      router.replace("/setup");
-      return;
-    }
-    loadSessions();
-  }, [user, authLoading, router]);
+  const loading = authLoading || roleLoading;
 
-  async function loadSessions() {
-    setLoading(true);
-    try {
-      const data = await getAllSessions();
-      setSessions(data);
-    } catch (err) {
-      console.error("Failed to load sessions:", err);
-    } finally {
-      setLoading(false);
-    }
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
   }
+
+  if (!user || (role !== "super_admin" && role !== "facility_admin")) {
+    router.replace("/setup");
+    return null;
+  }
+
+  const facilityIds = adminFacilities.map((f) => f.facility_id);
 
   async function handleExportCSV() {
     setExporting(true);
     try {
-      // Fetch all data
-      const [allSessions, allCases] = await Promise.all([
-        getAllSessions(),
-        getAllCases(),
-      ]);
+      let allSessions: Session[];
+      if (role === "super_admin") {
+        allSessions = await getAllSessions();
+      } else {
+        const all: Session[] = [];
+        for (const fid of facilityIds) {
+          const fSessions = await getSessionsByFacility(fid);
+          all.push(...fSessions);
+        }
+        allSessions = all;
+      }
 
+      const allCases = await getAllCases();
       const casesMap = new Map<string, Case>();
       allCases.forEach((c) => casesMap.set(c.case_id, c));
 
-      // Fetch all results for all sessions
       const allResults: (ReadingResult & {
         ground_truth: string;
         ai_prediction: string;
@@ -76,7 +80,6 @@ export default function AdminPage() {
         }
       }
 
-      // Generate CSV
       const headers = [
         "session_id",
         "reader_id",
@@ -105,7 +108,6 @@ export default function AdminPage() {
           const val = (r as unknown as Record<string, unknown>)[h];
           if (val === null || val === undefined) return "";
           const str = String(val);
-          // Escape CSV values with commas or quotes
           if (str.includes(",") || str.includes('"') || str.includes("\n")) {
             return `"${str.replace(/"/g, '""')}"`;
           }
@@ -115,7 +117,9 @@ export default function AdminPage() {
       }
 
       const csv = csvRows.join("\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const blob = new Blob(["\uFEFF" + csv], {
+        type: "text/csv;charset=utf-8;",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -130,19 +134,18 @@ export default function AdminPage() {
     }
   }
 
-  if (authLoading || loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <h1 className="text-xl font-bold">管理画面 / Admin</h1>
+          <div>
+            <h1 className="text-xl font-bold">管理画面 / Admin</h1>
+            <p className="text-xs text-muted-foreground">
+              {role === "super_admin"
+                ? "総管理者 / Super Admin"
+                : `施設管理者 / Facility Admin (${adminFacilities.map((f) => f.name).join(", ")})`}
+            </p>
+          </div>
           <div className="flex items-center gap-3">
             <Button
               onClick={handleExportCSV}
@@ -154,68 +157,55 @@ export default function AdminPage() {
             <Button variant="ghost" onClick={() => router.push("/setup")}>
               戻る
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                const { signOut } = await import("@/lib/firebase/auth");
+                await signOut();
+                router.replace("/login");
+              }}
+            >
+              ログアウト
+            </Button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              セッション一覧 / Sessions ({sessions.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {sessions.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                セッションがありません
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left">
-                      <th className="px-3 py-2">Reader ID</th>
-                      <th className="px-3 py-2">施設</th>
-                      <th className="px-3 py-2">レベル</th>
-                      <th className="px-3 py-2">タスク</th>
-                      <th className="px-3 py-2">進捗</th>
-                      <th className="px-3 py-2">ステータス</th>
-                      <th className="px-3 py-2">開始日時</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map((s) => (
-                      <tr key={s.session_id} className="border-b">
-                        <td className="px-3 py-2 font-mono">{s.reader_id}</td>
-                        <td className="px-3 py-2">{s.facility}</td>
-                        <td className="px-3 py-2">{s.reader_level}</td>
-                        <td className="px-3 py-2">{s.task_type}</td>
-                        <td className="px-3 py-2">
-                          {s.completed_cases}/{s.total_cases}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge
-                            variant={
-                              s.status === "completed" ? "default" : "secondary"
-                            }
-                          >
-                            {s.status === "completed" ? "完了" : "進行中"}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">
-                          {s.started_at
-                            ? new Date(s.started_at).toLocaleString("ja-JP")
-                            : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        <Tabs defaultValue={role === "super_admin" ? "facilities" : "readers"}>
+          <TabsList>
+            {role === "super_admin" && (
+              <TabsTrigger value="facilities">施設管理</TabsTrigger>
             )}
-          </CardContent>
-        </Card>
+            <TabsTrigger value="readers">読影者管理</TabsTrigger>
+            <TabsTrigger value="sessions">セッション</TabsTrigger>
+          </TabsList>
+
+          {role === "super_admin" && (
+            <TabsContent value="facilities" className="mt-4">
+              <FacilityManager adminEmail={user.email!} />
+            </TabsContent>
+          )}
+
+          <TabsContent value="readers" className="mt-4">
+            <ReaderManager
+              role={role!}
+              facilityIds={
+                role === "super_admin" ? undefined : facilityIds
+              }
+            />
+          </TabsContent>
+
+          <TabsContent value="sessions" className="mt-4">
+            <SessionViewer
+              role={role!}
+              facilityIds={
+                role === "super_admin" ? undefined : facilityIds
+              }
+            />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
